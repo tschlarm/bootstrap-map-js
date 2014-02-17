@@ -49,7 +49,8 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   			_mapDiv: null,
   			_map: null,
   			_delay: 100,
-  			_w: 0,
+  			_windowHeight: 0,
+			_windowWidth : 0,
   			constructor: function (mapDivId, options)
   			{
   				this._mapDivId = mapDivId;
@@ -190,25 +191,40 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   				{
   					return;
   				}
-				// non ie8
-  				//var w = window.innerHeight;
-  				//var wd = window.innerWidth;
-  				var w = $(window).height();
-  				var wd = $(window).width();
+  				var windowHeight = $(window).height();
+  				var windowWidth = $(window).width();
 
-  				if (w != this._w || wd != this._wd)
+  				//var windowHeight = window.innerHeight;
+  				//var windowWidth = window.innerWidth;
+  				console.log("jq Height=" + windowHeight + "/window.innerHeight:" + window.innerHeight);
+
+  				if (windowHeight != this._windowHeight || windowWidth != this._windowWidth)
   				{
-  					this._w = w;
-  					this._wd = wd;
-  					var b = document.body.clientHeight;
-  					var mh = this._mapDiv.clientHeight;
-  					var ms = this._calcSpace(this._mapDiv);
-  					var mh1 = mh - ms;
-  					var room = w - b;
-  					var mh2 = room + mh1;
-  					style.set(this._mapDivId, { "height": mh2 + "px" });
-  					//console.log("Window:"+ w + " Body:" + b + " Room: " + room + " MapInner:" + mh + " MapSpace:"+ms + " OldMapHeight:"+mh1+ " NewMapHeight:"+mh2);
-  				}
+  					this._windowHeight = windowHeight;
+  					this._windowWidth = windowWidth;
+
+  					console.log("window.innerHeight:" + window.innerHeight);
+  					console.log("document.documentElement.clientHeight:" + document.documentElement.clientHeight);
+  					console.log("document.body.clientHeight:" + document.body.clientHeight);
+
+  					var bodyHeight = document.body.clientHeight;
+  					var mapHeight = this._mapDiv.clientHeight;
+  					if (mapHeight == 0)
+  					{
+						// if our map does not contain anything (initial draw) make it the hight of the body.
+  						mapHeight = bodyHeight;
+  					}
+  					var MapSpace = this._calcSpace(this._mapDiv);
+  					console.log("MapSpace:" + MapSpace);
+  					var OldMapHeight = mapHeight - MapSpace;
+  					console.log("OldMapHeight:" + OldMapHeight);
+  					var room = windowHeight - bodyHeight;
+  					console.log("Room:" + room);
+  					var NewMapHeight = room + OldMapHeight;
+  					console.log("NewMapHeight:" + NewMapHeight);
+
+  					style.set(this._mapDivId, { "height": NewMapHeight + "px" });
+				  }
   			},
   			_repositionInfoWin: function (graphicCenterPt)
   			{
