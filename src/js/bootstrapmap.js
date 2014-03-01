@@ -1,5 +1,5 @@
-define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/dom", "dojo/_base/lang", "dojo/dom-style", "dojo/query", "dojo/domReady!"],
-  function (Map, Popup, declare, on, dom, lang, style, query)
+define(["esri/map", "esri/dijit/Popup", "esri/arcgis/utils", "dojo/_base/declare", "dojo/on", "dojo/dom", "dojo/_base/lang", "dojo/dom-style", "dojo/query", "dojo/domReady!"],
+  function (Map, Popup, EsriUtils, declare, on, dom, lang, style, query)
   {
   	"use strict"
   	return {
@@ -11,6 +11,15 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   				var mapOut = smartResizer.createMap();
   				mapOut._smartResizer = smartResizer;
   				return mapOut;
+  			}
+  		},
+  		createWebMap: function (webMapId, divId, options)
+  		{
+  			if (divId && options)
+  			{
+  				var smartResizer = new this._smartResizer(divId, options);
+  				var deferredOut = smartResizer.createWebMap(webMapId);
+  				return deferredOut;
   			}
   		},
   		bindTo: function (map)
@@ -51,27 +60,57 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   			_delay: 100,
   			_windowHeight: 0,
 			_windowWidth : 0,
-  			constructor: function (mapDivId, options)
+			_visible: true,
+			_visibilityTimer: null,
+			_mapDeferred: null,
+			constructor: function (mapDivId, options)
   			{
   				this._mapDivId = mapDivId;
   				this._mapDiv = dom.byId(mapDivId);
-  				this._options = options;
+  				this._options = lang.mixin(options, {});
   				this._handles = [];
   			},
   			createMap: function ()
   			{
-  				this._setMapDiv(true);
-  				lang.mixin(this._options, { smartNavigation: false });
+  				this._setMapDiv(false);
+  				lang.mixin(this._options, {
+  					smartNavigation: false,
+  					autoResize: false
+  				});
   				this._map = new Map(this._mapDivId, this._options);
   				this._bindEvents();
   				this._mapDiv.__map = this._map;
   				return this._map;
   			},
+  			createWebMap: function (webMapId)
+  			{
+  				this._setMapDiv(false);
+  				if (!this._options.hasOwnProperty("mapOptions"))
+  				{
+  					this._options["mapOptions"] = {};
+  				}
+  				lang.mixin(this._options.mapOptions, {
+  					smartNavigation: false,
+  					autoResize: false
+  				});
+  				var deferred = EsriUtils.createMap(webMapId, this._mapDivId, this._options);
+  				this._mapDeferred = deferred;
+  				var myselfAsAResizer = this;
+  				var getDeferred = function (response)
+  				{
+  					this._map = response.map;
+  					this._bindEvents();
+  					this._mapDiv.__map = this._map;
+  					this._smartResizer = myselfAsAResizer;
+  				}
+  				this._mapDeferred.then(lang.hitch(this, getDeferred));
+  				return deferred;
+  			},
   			bindToMap: function (map)
   			{
   				this._setMapDiv(true);
   				this._map = map;
-  				this._map.resize();
+  				this._setMapDiv(true);
   				this._bindEvents();
   				this._setTouchBehavior();
   				this._mapDiv.__map = this._map;
@@ -153,7 +192,7 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   				// Responsive resize
   				var resizeWin = function (evt)
   				{
-  					this._setMapDiv();
+  					this._setMapDiv(true);
   				};
 
   				this._handles.push(on(window, "resize", lang.hitch(this, resizeWin)));
@@ -185,11 +224,55 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   				var h = p + g + b;
   				return h;
   			},
-  			_setMapDiv: function ()
+  			_checkVisibility: function ()
+  			{
+  				var visible = this._getMapDivVisibility();
+  				if (this._visible !== visible)
+  				{
+  					if (visible)
+  					{
+  						this._setMapDiv(true);
+  					}
+  				}
+  			},
+  			_getMapDivVisibility: function ()
+  			{
+  				return $("#" + this._mapDivId).is(":visible");
+  			},
+  			_controlVisibilityTimer: function (runTimer)
+  			{
+  				if (runTimer)
+  				{
+  					// Start a visibility change timer.
+  					this._visibilityTimer = setInterval((function ()
+  					{
+  						this._checkVisibility();
+  						//console.log("_checkVisibility");
+  					}).bind(this), 200);
+  					//console.log("Started Timer: " + this._visibilityTimer);
+  				} else
+  				{
+  					// Stop any timer we have checking for visibility change.
+  					if (this._visibilityTimer)
+  					{
+  						//console.log("Stop Timer!!!! " + this._visibilityTimer);
+  						clearInterval(this._visibilityTimer);
+  						this._visibilityTimer = null;
+  					}
+  				}
+  			},
+  			_setMapDiv: function(forceResize)
   			{
   				if (!this._mapDivId)
   				{
   					return;
+  				}
+  				// Get map visibility - TODO!
+  				var visible = this._getMapDivVisibility();
+  				if (this._visible !== visible)
+  				{
+  					this._visible = visible;
+  					this._controlVisibilityTimer(!visible);
   				}
   				var windowHeight = $(window).height();
   				var windowWidth = $(window).width();
@@ -223,8 +306,18 @@ define(["esri/map", "esri/dijit/Popup", "dojo/_base/declare", "dojo/on", "dojo/d
   					var NewMapHeight = room + OldMapHeight;
   					console.log("NewMapHeight:" + NewMapHeight);
 
-  					style.set(this._mapDivId, { "height": NewMapHeight + "px" });
-				  }
+  					style.set(this._mapDivId, {
+  						"height": NewMapHeight + "px",
+  						"width": "100%"
+  					});
+				}
+  				// Force resize and reposition
+  				if (this._map && forceResize && this._visible)
+  				{
+  					//console.log("Resize and Reposition map.")
+  					this._map.resize();
+  					this._map.reposition();
+  				}
   			},
   			_repositionInfoWin: function (graphicCenterPt)
   			{
